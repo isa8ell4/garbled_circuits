@@ -31,37 +31,34 @@ class Bob: # server
         self.get_bob_inputs()
 
         # get alice inputs + circuit
+        self.get_alice_inputs()
+        print(f'circuit inputs: {self.circuit_inputs}')
 
         # evaluate
 
 
         # publish results 
 
-    def recv_exact(self, sock, n):
-        buf = b''
-        while len(buf) < n:
-            buf += sock.recv(n - len(buf))
-        return buf
 
 
-    def recv_int(self, sock):
-        length_bytes = self.recv_exact(sock, 4)
-        length = int.from_bytes(length_bytes, 'big')
+    def get_alice_inputs(self):
+        """
+       get alice's wire inputs
+        
+        :param self: Description
+        """
+        alice_input_ids = self.config_json['circuits'][0]['alice']
+        sock = self.connection
+        a0_int = recv_int(sock)
+        a1_int = recv_int(sock)
 
-        data = self.recv_exact(sock, length)
-        return int.from_bytes(data, 'big')
-    
-    def recv_pub_key(self, connection):
-        e  = self.recv_int(connection)
-        n  = self.recv_int(connection)
+        a0 = unpack_wirelabel(int_to_bytes(a0_int))
+        a1 = unpack_wirelabel(int_to_bytes(a1_int))
+        alice = [a0,a1]
 
-        return e, n
-    
-    def recv_random_numbers(self, connection):
-        x0 = self.recv_int(connection)
-        x1 = self.recv_int(connection)
+        for i, id in enumerate(alice_input_ids):
+            self.circuit_inputs[id] = alice[i]
 
-        return x0, x1
 
     def get_bob_inputs(self):
 
@@ -73,15 +70,22 @@ class Bob: # server
         # identify wires
         # print(self.config_json)
         input_wire_ids = self.config_json["circuits"][0]["bob"]
+        # print(f'input_wire_ids: {input_wire_ids}')
 
         # get decision bits for both wires
-        wealth_bytes = int_to_bits(self.wealth)
+        # wealth_bits = int_to_bits(self.wealth)
+
+        # map wire to binary input
+        wire_inputs = wires_to_inputs(wire_ids=input_wire_ids, bid=self.wealth)
+
+        # print(f'bob wealth bits: {wealth_bits}')
     
 
         # get inputs for each input wire using oblivious transfer
-        for i, input_wire_id in enumerate(input_wire_ids):
-            print(f'receive inputs for wire {input_wire_id}')
-            self.circuit_inputs[input_wire_id] = self.oblivious_transfer_bob(wealth_bytes[i])
+        for wire_id, bit in wire_inputs.items():
+        # for i, input_wire_id in enumerate(input_wire_ids):
+            print(f'receive inputs for wire {wire_id}')
+            self.circuit_inputs[wire_id] = self.oblivious_transfer_bob(bit)
 
 
     def oblivious_transfer_bob(self, input_bit:int):
@@ -102,7 +106,7 @@ class Bob: # server
         n = recv_int(sock)
         x0 = recv_int(sock)
         x1 = recv_int(sock)
-        print(f'received e,n,x0,x1')
+        # print(f'received e,n,x0,x1')
         # e, n = self.recv_pub_key(connection)
         # x0, x1 = self.recv_random_numbers(connection)
 

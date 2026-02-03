@@ -31,6 +31,7 @@ class Alice:
         self.send_bob_inputs()
 
         # send alice (self) inputs
+        self.send_alice_inputs()
 
         # send garbled circuit
 
@@ -55,9 +56,39 @@ class Alice:
         #     print(gate)
         return circuit
 
+    def send_alice_inputs(self):
+
+
+        # turn input into bits
+        # wealth_bits = int_to_bits(self.wealth)
+
+        # print(f'wealth type: {wealth_bits} | {type(wealth_bits)}')
+
+        # get wire inputs options
+        alice_input_ids = self.config_json['circuits'][0]['alice']
+
+        wire_inputs = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth)
+
+        for wire_id, bit in wire_inputs.items():
+            wire = self.garbled_circuit.wires[wire_id]
+            if bit == 0:
+                wire_label_bytes = pack_wirelabel(wire.l0)
+                print(f'sending alice input {wire.l0}')
+            elif bit == 1:
+                wire_label_bytes = pack_wirelabel(wire.l1)
+                print(f'sending alice input {wire.l1}') 
+            else: 
+                raise ValueError(f'wealth bit is not 0 or 1')
+            
+            send_bytes(self.socket, wire_label_bytes)
+
+
+
+        
     def send_bob_inputs(self):
         # bob input options
         bob_input_ids = self.config_json['circuits'][0]['bob']
+
         
         # # for each wire do oblivious transfer
         for id in bob_input_ids:
@@ -114,7 +145,7 @@ class Alice:
 
         # wait for v
         v = recv_int(self.socket)
-        print(f'received v')
+        # print(f'received v')
 
         # calc k0, k1, m0_tick, m1_tick
 

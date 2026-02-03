@@ -2,17 +2,18 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 import struct
 from yao2 import WireLabel
 
-def pack_wirelabel(label:WireLabel):
+
+def pack_wirelabel(label:WireLabel) -> bytes:
     # return (label.key << 1) | int_to_bytes(label.pbit)
     return label.key + bytes([label.pbit])
 
-def unpack_wirelabel(data):
+def unpack_wirelabel(data: bytes) -> WireLabel:
     # pbit = b&1
     # key = b<<1
     # return WireLabel(key, pbit)
     key = data[:-1]
     pbit = data[-1]
-    return key, pbit
+    return WireLabel(key, pbit)
 
 
 def send_bytes(sock, b: bytes):
@@ -57,3 +58,43 @@ def bits_to_int(bits):
     for b in bits:
         x = (x << 1) | b
     return x
+
+def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
+    """
+    map inputs to intended wires. small wire ids get LSB, greater wire ids get MSB
+    
+    :param wire_ids: Description
+    :type wire_ids: list[int]
+    :param bid: Description
+    :type bid: int
+
+    return: dict (wire id: binary input)
+    """
+    
+    wires_to_inputs = {}
+    wire_ids.sort()
+
+
+    bid_bits = int_to_bits(bid)
+
+    for i, bit in enumerate(bid_bits):
+        if bit == 1:
+            break
+    
+    valuable_bits = bid_bits[i:]
+
+    if len(valuable_bits) > len(wire_ids):
+        raise ValueError(
+            f"Too many valuable bits ({len(valuable_bits)}) "
+            f"for available wire IDs ({len(wire_ids)})"
+        )
+    
+    bid_bits.reverse()
+    for index, wire_id in enumerate(wire_ids):
+        wires_to_inputs[wire_id] = bid_bits[index]
+
+    return wires_to_inputs
+
+
+
+    
