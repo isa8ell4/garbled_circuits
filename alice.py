@@ -2,7 +2,7 @@ import socket, ssl, struct, json, random, secrets
 from cryptography.hazmat.primitives import serialization
 from yao2 import GarbledCircuit, Wire, WireLabel
 from cryptography.hazmat.primitives.asymmetric import rsa
-from ot import *
+from coms import *
 
 class Alice: 
     def __init__(self, config_json, wealth, port=8089, host='localhost', msgs = None, circuit=None):
@@ -34,6 +34,8 @@ class Alice:
         self.send_alice_inputs()
 
         # send garbled circuit
+        print(f'garbled circuit to send: \n{self.garbled_circuit.garbled_circuit}')
+        self.send_garbled_circuit()
 
         # wait for evaluation
 
@@ -48,6 +50,9 @@ class Alice:
         # print("[Alice] Sent and shut down write end.")
         # self.socket.close()
         print("[Alice] Closed socket.")
+
+    def send_garbled_circuit(self):
+        send_circuit(self.socket, self.garbled_circuit.garbled_circuit)
 
     def garble_circuit(self):
         circuit = GarbledCircuit(config_json=self.config_json['circuits'][0])
@@ -81,8 +86,6 @@ class Alice:
                 raise ValueError(f'wealth bit is not 0 or 1')
             
             send_bytes(self.socket, wire_label_bytes)
-
-
 
         
     def send_bob_inputs(self):

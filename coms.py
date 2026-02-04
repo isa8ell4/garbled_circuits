@@ -1,7 +1,27 @@
 from cryptography.hazmat.primitives.asymmetric import rsa
-import struct
+import struct, socket
 from yao2 import WireLabel
+import pickle
 
+def send_circuit(sock: socket.socket, obj) -> None:
+    payload = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+    header = struct.pack("!I", len(payload))  # 4-byte big-endian length
+    sock.sendall(header + payload)
+
+def recv_exact(sock: socket.socket, n: int) -> bytes:
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("Socket closed while receiving data")
+        buf += chunk
+    return buf
+
+def recv_circuit(sock: socket.socket):
+    header = recv_exact(sock, 4)
+    (length,) = struct.unpack("!I", header)
+    payload = recv_exact(sock, length)
+    return pickle.loads(payload)    
 
 def pack_wirelabel(label:WireLabel) -> bytes:
     # return (label.key << 1) | int_to_bytes(label.pbit)

@@ -1,6 +1,7 @@
 import socket, ssl, struct, json, random, secrets
-from ot import *
+from coms import *
 from tester import ot_key
+# from yao2 import GarbledGate
 
 class Bob: # server
     def __init__(self, config_json, wealth, port=8089, host='localhost', msgs = None):
@@ -8,6 +9,7 @@ class Bob: # server
         self.wealth = wealth
 
         self.circuit_inputs = {} # wire id: wire input/label, both alice + bob inputs
+        self.garbled_circuit = {}
         # self.alice_inputs = {}
 
         self.port = port 
@@ -32,14 +34,108 @@ class Bob: # server
 
         # get alice inputs + circuit
         self.get_alice_inputs()
-        print(f'circuit inputs: {self.circuit_inputs}')
+        # print(f'circuit inputs: {self.circuit_inputs}')
+        self.get_garbled_circuit()
 
         # evaluate
+
+        self.evaluate_circuit(garbled_tables=self.garbled_circuit, 
+                              circuit_inputs=self.circuit_inputs)
 
 
         # publish results 
 
+    def evaluate_circuit(self, garbled_tables:dict, circuit_inputs:dict):
+        """
+        Use Kahn's algorithm to go through topological evalution of gates
+        
+        :param self: Description
+        :param garbled_tables: dictionary of gate_ids and encrypted outputs
+        :param circuit_inputs: dictionary of wire_ids and their values (either l0 or l1)
+        """
+        
+        ### build necessary lists and dicts
 
+        input_wires = self.config_json["circuits"][0]["bob"]
+        input_wires.extend(self.config_json["circuits"][0]["alice"])
+
+        ready_queue = [] # list of gates ready for evaluation, input wire labels are found
+        remaining_inputs = {} # gate_id: count of missing inputs
+        all_gate_inputs = {} # gate_id: ids of input wires
+
+        all_wires = [gate["id"] for gate in self.config_json["circuits"][0]["gates"]]
+        all_wires.extend(input_wires)
+        dependents = dict.fromkeys(all_wires, []) # gate_id: list of gates that use this wire
+
+        wire_values = dict.fromkeys(all_wires, None) # values of wires when solved
+        for input_wire, value in circuit_inputs.items():
+            wire_values[input_wire] = value
+
+        for gate in self.config_json["circuits"][0]["gates"]: # go through all valid gates
+
+            gate_id = gate["id"]
+            gate_inputs = gate["in"]
+            gate_type = gate["type"]
+
+            all_gate_inputs[gate_id] = gate_inputs
+            
+            for wire_id in gate_inputs:
+                dependents[wire_id].append(gate_id)
+
+            common_elements = list(set(input_wires).intersection(gate_inputs))
+
+            if gate_type == "NOT":
+                missing_inputs = 1 - len(common_elements)
+            else: 
+                missing_inputs = 2 - len(common_elements)
+
+            remaining_inputs[gate_id] = missing_inputs
+
+            if missing_inputs == 0:
+                ready_queue.append(gate_id)
+        
+        print(f'ready_queue: {ready_queue}')
+
+        ### evaluate gates in topological order
+        while ready_queue:
+            gate_id = ready_queue.pop()
+
+            print(f'\nprocessing gate {gate_id}')
+
+            # get inputs
+            gate_input_ids = all_gate_inputs[gate_id]
+            gate_inputs = {}
+            for id in gate_input_ids:
+                label = wire_values[id]
+                gate_inputs[id] = label
+                if label == None: 
+                    raise ValueError(f'input wire {id} for gate {gate_id} is None')
+
+            gate_output_label = self.eval_gate(gate_inputs, garbled_tables[gate_id])
+            wire_values[gate_id] = gate_output_label
+
+            for g in dependents[gate_id]:
+                remaining_inputs[g] -=1
+                if remaining_inputs[g] == 0:
+                    ready_queue.append(g)
+    
+
+    def eval_gate(self, gate_inputs:dict, possible_outputs:list):
+        """
+        evaluate gate based on wire_input values
+        
+        :param self: Description
+        
+        :param gate_inputs: dictionary of wire ids and their values
+        :type gate_inputs: dict
+        :param possible_outputs: list (len 2 or 4) possible encrypted outputs
+        """
+        print(f'inputs: {gate_inputs}')
+        print(f'possible outputs: {possible_outputs}')
+
+    def get_garbled_circuit(self):
+        self.garbled_circuit = recv_circuit(self.connection)
+        print(f'recieved garbled circuit: {self.garbled_circuit}')
 
     def get_alice_inputs(self):
         """
