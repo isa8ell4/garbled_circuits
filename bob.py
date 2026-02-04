@@ -1,6 +1,9 @@
 import socket, ssl, struct, json, random, secrets
 from coms import *
 from tester import ot_key
+import hashlib
+from yao2 import Wire, WireLabel
+
 # from yao2 import GarbledGate
 
 class Bob: # server
@@ -38,12 +41,11 @@ class Bob: # server
         self.get_garbled_circuit()
 
         # evaluate
-
-        self.evaluate_circuit(garbled_tables=self.garbled_circuit, 
+        output_encrypted = self.evaluate_circuit(garbled_tables=self.garbled_circuit, 
                               circuit_inputs=self.circuit_inputs)
+        
+        # send results to alice
 
-
-        # publish results 
 
     def evaluate_circuit(self, garbled_tables:dict, circuit_inputs:dict):
         """
@@ -76,6 +78,7 @@ class Bob: # server
             gate_id = gate["id"]
             gate_inputs = gate["in"]
             gate_type = gate["type"]
+            # print(f'gate_type: {gate_type}')
 
             all_gate_inputs[gate_id] = gate_inputs
             
@@ -98,7 +101,8 @@ class Bob: # server
 
         ### evaluate gates in topological order
         while ready_queue:
-            gate_id = ready_queue.pop()
+            gate_id = ready_queue.pop(0)
+            
 
             print(f'\nprocessing gate {gate_id}')
 
@@ -111,16 +115,24 @@ class Bob: # server
                 if label == None: 
                     raise ValueError(f'input wire {id} for gate {gate_id} is None')
 
-            gate_output_label = self.eval_gate(gate_inputs, garbled_tables[gate_id])
+            gate_output_label = self.eval_gate(gate_id, gate_inputs, garbled_tables[gate_id])
             wire_values[gate_id] = gate_output_label
 
             for g in dependents[gate_id]:
                 remaining_inputs[g] -=1
                 if remaining_inputs[g] == 0:
                     ready_queue.append(g)
+
+        # get output
+        out_wire_id = self.config_json["circuits"][0]["out"][0]
+        # print(out_wire_id)
+        out_wire_label = wire_values[out_wire_id]
+        # print(out)
+        return out_wire_label
+
     
 
-    def eval_gate(self, gate_inputs:dict, possible_outputs:list):
+    def eval_gate(self, gate_id:int, gate_inputs:dict, possible_outputs:list):
         """
         evaluate gate based on wire_input values
         
@@ -132,6 +144,70 @@ class Bob: # server
         """
         print(f'inputs: {gate_inputs}')
         print(f'possible outputs: {possible_outputs}')
+        # print(f'gate_type: {gate_type}')
+
+
+        if len(list(gate_inputs.values())) == 1: # NOT gate
+            wire_input = list(gate_inputs.values())[0]
+            index = self.get_index_pbit_not(pbit=wire_input.pbit)
+            ciphertext = possible_outputs[index]
+            out = self.garble_decrypt_not(wire=wire_input, ciphertext=ciphertext, gate_id=gate_id)
+        else: 
+            wire0 = list(gate_inputs.values())[0]
+            wire1 = list(gate_inputs.values())[1]
+            index=self.get_index_pbits(pbit0=wire0.pbit, pbit1=wire1.pbit)
+            ciphertext = possible_outputs[index]
+            out = self.garble_decrypt(wire0=wire0, wire1=wire1, ciphertext=ciphertext, gate_id=gate_id)
+
+        return out
+
+    def get_index_pbits(self, pbit0:int, pbit1:int):
+        if pbit0==0 and pbit1==0:
+            return 0
+        elif pbit0==0 and pbit1==1:
+            return 1
+        elif pbit0==1 and pbit1==0:
+            return 2
+        elif pbit0==1 and pbit1==1:
+            return 3
+        else: 
+            raise ValueError(f'pbit(s) is not 0 or 1, but {pbit0} and {pbit1}')
+        
+    def get_index_pbit_not(self, pbit:int):
+        if pbit==0:
+            return 0
+        elif pbit==1:
+            return 1
+        else: 
+            raise ValueError(f'pbit is not 0 or 1, but {pbit}')
+
+    def H(self, data: bytes) -> bytes:
+        return hashlib.sha256(data).digest()
+
+
+    def derive_pad(self, k0, k1, gate_id, length):
+        digest = self.H(k0 + k1 + gate_id.to_bytes(4, 'big'))
+        return digest[:length]
+
+    def garble_decrypt(self, wire0:WireLabel, wire1:WireLabel, ciphertext, gate_id:int):
+        pad = self.derive_pad(wire0.key, wire1.key, gate_id, len(ciphertext))
+        plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
+
+        key = plaintext[:-1]
+        pbit = plaintext[-1]
+        return WireLabel(key, pbit)
+    
+    def derive_pad_not(self, k0, gate_id, length):
+        digest = self.H(k0 + gate_id.to_bytes(4, 'big'))
+        return digest[:length]
+
+    def garble_decrypt_not(self, wire:WireLabel,  ciphertext, gate_id:int):
+        pad = self.derive_pad_not(wire.key, gate_id, len(ciphertext))
+        plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
+
+        key = plaintext[:-1]
+        pbit = plaintext[-1]
+        return WireLabel(key, pbit)
 
     def get_garbled_circuit(self):
         self.garbled_circuit = recv_circuit(self.connection)
