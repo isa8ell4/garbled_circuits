@@ -15,6 +15,8 @@ class Wire:
         self.id = id
         self.l0 = l0   # (key, pbit) or WireLabel type
         self.l1 = l1
+    def __str__(self):
+        return f'Wire {self.id} | l0: {self.l0.key}, {self.l0.pbit} | l1: {self.l1.key}, {self.l1.pbit}'
 
 
 def H(data: bytes) -> bytes:
@@ -24,7 +26,7 @@ def derive_pad(k0, k1, gate_id, length):
     digest = H(k0 + k1 + gate_id.to_bytes(4, 'big'))
     return digest[:length]
 
-def garble_encrypt(wire0, wire1, output_label: WireLabel, gate_id:int):
+def garble_encrypt(wire0:WireLabel, wire1:WireLabel, output_label: WireLabel, gate_id:int):
     plaintext = output_label.key + bytes([output_label.pbit])
     pad = derive_pad(wire0.key, wire1.key, gate_id, len(plaintext))
     return bytes(a ^ b for a, b in zip(plaintext, pad))
@@ -60,9 +62,9 @@ class GarbledCircuit:
     def __init__(self, config_json):
         self.config_json = config_json
         self.gates_json = config_json["gates"]
-        self.wires = self.create_wires()
-        self.garbled_gates = self.create_garbled_gates()
-        self.garbled_circuit = self.create_garbled_circuit()
+        self.wires = self.create_wires() # dict {wire_id : wire object}
+        self.garbled_gates = self.create_garbled_gates() # list
+        self.garbled_circuit = self.create_garbled_circuit() # dict {id: encrypted output results (table)}
 
 
     def create_wires(self):
@@ -76,6 +78,10 @@ class GarbledCircuit:
         for wire_id in wire_ids:
             p1 = random.choice([0,1])
             p2 = not p1
+
+            if p1 not in [0,1] or p2 not in [0,1]:
+                raise ValueError(f'p1= {p1}, p2= {p2}')
+            
             wires[wire_id] = Wire(id=wire_id, 
                                   l0=WireLabel(key=os.urandom(16), pbit=p1), 
                                   l1=WireLabel(key=os.urandom(16), pbit=p2))
@@ -191,6 +197,7 @@ class GarbledGate:
 
         # get wire labels 
         in_ids = list(self.input)
+        in_ids.sort()
         if len(in_ids) != 1:
             raise ValueError(f"Expected 1-input gate, got inputs={in_ids}")
 
@@ -201,22 +208,6 @@ class GarbledGate:
         in1 = {0: w_in1.l0, 1: w_in1.l1}
         # in2 = {0: w_in2.l0, 1: w_in2.l1}
         outL = {0: w_out.l0, 1: w_out.l1}
-
-        # build garbled table 
-        garbled = {}
-
-        # for b1, out_bit in self.table.items():
-        #     wire0 = in1[b1]
-        #     # wire1 = in2[b2]
-        #     out_label = outL[out_bit]
-
-        #     garbled[wire0] = garble_encrypt_not(wire=wire0, output_label=out_label, gate_id=self.id)
-
-        # # --- order according to p-bits (point-and-permute) ---
-        # # If your WireLabel is (label, pbit) or has .pbit:
-        # self.garbled_table = dict(
-        #     sorted(garbled.items(), key=lambda item: item[0][1])
-        # )
 
         table2 = [None] * 2
 
@@ -241,6 +232,8 @@ class GarbledGate:
 
         # get wire labels 
         in_ids = list(self.input)
+        in_ids.sort()
+        # print(f'create garbled gate for {self.id}, possible ')
         if len(in_ids) != 2:
             print(self)
             raise ValueError(f"Expected 2-input gate, got inputs={in_ids}")
@@ -267,22 +260,7 @@ class GarbledGate:
 
         self.garbled_table = table4
 
-        # garbled = {}
 
-        # for (b1, b2), out_bit in self.table.items():
-        #     wire0 = in1[b1]
-        #     wire1 = in2[b2]
-        #     out_label = outL[out_bit]
-        #     # print(type(wire0), wire0)
-        #     # print(type(wire0[0]) if hasattr(wire0, "__getitem__") else "no index")
-
-        #     garbled[(wire0, wire1)] = garble_encrypt(wire0=wire0, wire1=wire1, output_label=out_label, gate_id = self.id)
-
-        # # --- order according to p-bits (point-and-permute) ---
-        # # If your WireLabel is (label, pbit) or has .pbit:
-        # self.garbled_table = dict(
-        #     sorted(garbled.items(), key=lambda item: (item[0][0].pbit, item[0][1].pbit))
-        # )
 
 
 

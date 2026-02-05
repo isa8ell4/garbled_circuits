@@ -33,18 +33,37 @@ class Bob: # server
         self.connection, self.address = self.socket.accept()
 
         # get my inputs from alice using oblivious transfer
+        print(f'\ninputs from alice using OT\n')
         self.get_bob_inputs()
 
         # get alice inputs + circuit
-        self.get_alice_inputs()
-        # print(f'circuit inputs: {self.circuit_inputs}')
+        print(f'\nalice sents her inputs\n')
+        [a0, a1] = self.get_alice_inputs()
+        print(f'alice inputs are \na0: {a0}\na1: {a1}')
+
+        print(f'circuit inputs: {self.circuit_inputs}')
+
+        print(f'\nreceive garbled circuit\n')
         self.get_garbled_circuit()
 
         # evaluate
+        print(f'\nevaluate garbled circuit\n')
         output_encrypted = self.evaluate_circuit(garbled_tables=self.garbled_circuit, 
                               circuit_inputs=self.circuit_inputs)
         
         # send results to alice
+        print(f'\nsend encrypted results to alice\n')
+        self.send_encrypted_result(output_encrypted)
+
+    def send_encrypted_result(self, output_encrypted:WireLabel):
+        """
+        send alice encrypted result
+        
+        :param output_encrypted: Description
+        :type output_encrypted: WireLabel
+        """
+        wire_label_bytes = pack_wirelabel(output_encrypted)
+        send_bytes(self.connection, wire_label_bytes)
 
 
     def evaluate_circuit(self, garbled_tables:dict, circuit_inputs:dict):
@@ -67,7 +86,9 @@ class Bob: # server
 
         all_wires = [gate["id"] for gate in self.config_json["circuits"][0]["gates"]]
         all_wires.extend(input_wires)
-        dependents = dict.fromkeys(all_wires, []) # gate_id: list of gates that use this wire
+        # dependents = dict.fromkeys(all_wires, []) # gate_id: list of gates that use this wire
+        dependents = {w: [] for w in all_wires}
+
 
         wire_values = dict.fromkeys(all_wires, None) # values of wires when solved
         for input_wire, value in circuit_inputs.items():
@@ -131,7 +152,6 @@ class Bob: # server
         return out_wire_label
 
     
-
     def eval_gate(self, gate_id:int, gate_inputs:dict, possible_outputs:list):
         """
         evaluate gate based on wire_input values
@@ -144,6 +164,7 @@ class Bob: # server
         """
         print(f'inputs: {gate_inputs}')
         print(f'possible outputs: {possible_outputs}')
+        # print(f'gate_inptus: {gate_inputs}')
         # print(f'gate_type: {gate_type}')
 
 
@@ -153,12 +174,19 @@ class Bob: # server
             ciphertext = possible_outputs[index]
             out = self.garble_decrypt_not(wire=wire_input, ciphertext=ciphertext, gate_id=gate_id)
         else: 
-            wire0 = list(gate_inputs.values())[0]
-            wire1 = list(gate_inputs.values())[1]
-            index=self.get_index_pbits(pbit0=wire0.pbit, pbit1=wire1.pbit)
-            ciphertext = possible_outputs[index]
-            out = self.garble_decrypt(wire0=wire0, wire1=wire1, ciphertext=ciphertext, gate_id=gate_id)
+            # wire0 = list(gate_inputs.values())[0]
+            # wire1 = list(gate_inputs.values())[1]
+            # index=self.get_index_pbits(pbit0=wire0.pbit, pbit1=wire1.pbit)
+            # ciphertext = possible_outputs[index]
+            # out = self.garble_decrypt(wire0=wire0, wire1=wire1, ciphertext=ciphertext, gate_id=gate_id)
+            # gate_inputs is {wire_id: WireLabel, wire_id: WireLabel}
+            (wid0, wire0), (wid1, wire1) = sorted(gate_inputs.items(), key=lambda kv: kv[0])
 
+            index = self.get_index_pbits(wire0.pbit, wire1.pbit)
+            ciphertext = possible_outputs[index]
+            print("gate", gate_id, "gate_inputs ids:", list(gate_inputs.keys()))
+
+            out = self.garble_decrypt(wire0, wire1, ciphertext, gate_id)
         return out
 
     def get_index_pbits(self, pbit0:int, pbit1:int):
@@ -215,8 +243,9 @@ class Bob: # server
 
     def get_alice_inputs(self):
         """
-       get alice's wire inputs
-        
+       get alice's wire inputs. must be recieved with smallest wire to largest wire
+        TODO: change communication protocol to send a wirelabel where the wire id is also attached
+
         :param self: Description
         """
         alice_input_ids = self.config_json['circuits'][0]['alice']
@@ -226,10 +255,13 @@ class Bob: # server
 
         a0 = unpack_wirelabel(int_to_bytes(a0_int))
         a1 = unpack_wirelabel(int_to_bytes(a1_int))
-        alice = [a0,a1]
+        alice_inputs = [a0,a1]
 
+        print(f'alice input ids: {alice_input_ids}')
         for i, id in enumerate(alice_input_ids):
-            self.circuit_inputs[id] = alice[i]
+            self.circuit_inputs[id] = alice_inputs[i]
+
+        return alice_inputs
 
 
     def get_bob_inputs(self):
@@ -249,14 +281,16 @@ class Bob: # server
 
         # map wire to binary input
         wire_inputs = wires_to_inputs(wire_ids=input_wire_ids, bid=self.wealth)
+        wire_inputs_sorted = dict(sorted(wire_inputs.items()))
 
         # print(f'bob wealth bits: {wealth_bits}')
     
 
         # get inputs for each input wire using oblivious transfer
-        for wire_id, bit in wire_inputs.items():
+        # go from smallest wire id to largest wire id
+        for wire_id, bit in wire_inputs_sorted.items():
         # for i, input_wire_id in enumerate(input_wire_ids):
-            print(f'receive inputs for wire {wire_id}')
+            print(f'OT inputs for wire {wire_id}')
             self.circuit_inputs[wire_id] = self.oblivious_transfer_bob(bit)
 
 
@@ -305,7 +339,7 @@ class Bob: # server
         # receive m0_tick and m1_tick
         m0_tick = recv_int(sock)
         m1_tick = recv_int(sock)
-        print(f'received m0_tick and m1_tick')
+        # print(f'received m0_tick and m1_tick')
 
         if input_bit == 0: 
             m = (m0_tick -k) % n

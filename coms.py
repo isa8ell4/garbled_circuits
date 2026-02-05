@@ -3,6 +3,9 @@ import struct, socket
 from yao2 import WireLabel
 import pickle
 
+
+# TODO: change communication protocol to send a wirelabel where the wire id is also attached
+
 def send_circuit(sock: socket.socket, obj) -> None:
     payload = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
     header = struct.pack("!I", len(payload))  # 4-byte big-endian length
@@ -81,7 +84,7 @@ def bits_to_int(bits):
 
 def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
     """
-    map inputs to intended wires. small wire ids get LSB, greater wire ids get MSB
+    map inputs to intended wires. small wire ids get MSB, greater wire ids get LSB
     
     :param wire_ids: Description
     :type wire_ids: list[int]
@@ -92,10 +95,11 @@ def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
     """
     
     wires_to_inputs = {}
-    wire_ids.sort()
+    wire_ids.sort(reverse=True)
 
 
     bid_bits = int_to_bits(bid)
+    print(f'converted {bid} (int) to {bid_bits} (binary)')
 
     for i, bit in enumerate(bid_bits):
         if bit == 1:
@@ -113,6 +117,7 @@ def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
     for index, wire_id in enumerate(wire_ids):
         wires_to_inputs[wire_id] = bid_bits[index]
 
+    print(f'wires to inputs: {wires_to_inputs}')
     return wires_to_inputs
 
 

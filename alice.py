@@ -27,29 +27,68 @@ class Alice:
         self.socket.connect((self.host, self.port))
 
         # do oblivious transfer protocol with bob to send bob his inputs
-        print(f'send bob inputs through oblivious transfer')
+        print(f'\nsend bob inputs through oblivious transfer\n')
         self.send_bob_inputs()
 
         # send alice (self) inputs
+        print(f'\nsend alice inputs\n')
         self.send_alice_inputs()
 
         # send garbled circuit
+        print(f'\nsend garbled circuit\n')
         print(f'garbled circuit to send: \n{self.garbled_circuit.garbled_circuit}')
+
+        print(f'valid wires and wirelabels')
+        for wire in list(self.garbled_circuit.wires.values()):
+            print(wire)
+
+        
         self.send_garbled_circuit()
 
         # wait for evaluation
+        print(f'\nreceive evaluation\n')
+        result_wire_label = self.receive_encrypted_result()
+        print(f'\ndecrypt results\n')
+        result = self.decrypt_output(result_wire_label, self.config_json["circuits"][0]["out"][0])
+        print(f'result: {result}')
 
-        # print results and shut down
+        if result == 0:
+            print(f'Bob is richer')
+        elif result == 1:
+            print(f'Alice is richer')
 
-        # self.socket.sendall(b'hello')
-
-        
-
-
-        # self.socket.shutdown(socket.SHUT_WR)   # tell Bob we're done sending
+        self.socket.shutdown(socket.SHUT_WR)   # tell Bob we're done sending
         # print("[Alice] Sent and shut down write end.")
-        # self.socket.close()
+        self.socket.close()
         print("[Alice] Closed socket.")
+
+
+    def decrypt_output(self, wire_label:WireLabel, output_wire_id:int):
+        """
+        map wirelabel result back to 0 or 1 to show if alice or bob won/who is richer
+        
+        :param self: Description
+        :param wire_label: Description
+        :type wire_label: WireLabel
+        :param output_wire_id: Description
+        :type output_wire_id: int
+        """
+        gate = [gate for gate in self.garbled_circuit.garbled_gates if gate.id == output_wire_id][0]
+        print(f'winning wire label: \n {wire_label}')
+        print(gate)
+        # print(f'garbled table: \n{gate.garbled_table}')
+        print(f'wire labels: \n{gate.wires[output_wire_id].l0}, {gate.wires[output_wire_id].l1}')
+        if wire_label == gate.wires[output_wire_id].l0:
+            return 0
+        elif wire_label == gate.wires[output_wire_id].l1:
+            return 1
+
+
+    def receive_encrypted_result(self):
+        result_encrypted = recv_bytes(sock=self.socket)
+        result_wire_label = unpack_wirelabel(result_encrypted)
+        return result_wire_label
+
 
     def send_garbled_circuit(self):
         send_circuit(self.socket, self.garbled_circuit.garbled_circuit)
@@ -62,7 +101,12 @@ class Alice:
         return circuit
 
     def send_alice_inputs(self):
-
+        """
+        send alice's inputs. must be sent in order of smallest wire id to largest wire id
+        TODO: change communication protocol to send a wirelabel where the wire id is also attached
+        
+        :param self: Description
+        """
 
         # turn input into bits
         # wealth_bits = int_to_bits(self.wealth)
@@ -71,21 +115,28 @@ class Alice:
 
         # get wire inputs options
         alice_input_ids = self.config_json['circuits'][0]['alice']
+        alice_input_ids.sort()
 
-        wire_inputs = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth)
+        wire_inputs_binary = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth)
+        wire_inputs_binary_sorted = dict(sorted(wire_inputs_binary.items()))
+        print(f'wire_inputs_binary_sorted: {wire_inputs_binary_sorted}')
+        # wire_inputs_labels = {}
 
-        for wire_id, bit in wire_inputs.items():
+        for wire_id, bit in wire_inputs_binary_sorted.items():
             wire = self.garbled_circuit.wires[wire_id]
+            print(f'options for wire {wire_id}:\n0: {wire.l0}\n1: {wire.l1}')
             if bit == 0:
                 wire_label_bytes = pack_wirelabel(wire.l0)
-                print(f'sending alice input {wire.l0}')
+                print(f'alice input for wire {wire_id} and input 0 is {wire.l0}')
             elif bit == 1:
                 wire_label_bytes = pack_wirelabel(wire.l1)
-                print(f'sending alice input {wire.l1}') 
+                print(f'alice input for wire {wire_id} and input 1 is {wire.l1}') 
             else: 
                 raise ValueError(f'wealth bit is not 0 or 1')
             
             send_bytes(self.socket, wire_label_bytes)
+
+        # return inputs_sent
 
         
     def send_bob_inputs(self):
@@ -97,7 +148,7 @@ class Alice:
         for id in bob_input_ids:
             print(f'send inputs for wire {id}')
             wire = self.garbled_circuit.wires[id]
-            print(f'options for wire {id}: \n{wire.l0}\n{wire.l1}')
+            print(f'options for wire {id}: \n0: {wire.l0}\n1: {wire.l1}')
             self.oblivious_transfer_alice(m0=wire.l0, m1=wire.l1)
 
         
