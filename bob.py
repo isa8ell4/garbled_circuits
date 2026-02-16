@@ -102,6 +102,7 @@ class Bob: # server
             gate_inputs = gate["in"]
             gate_type = gate["type"]
             # print(f'gate_type: {gate_type}')
+            print(f'gate {gate_id} | {gate_type}')
 
             all_gate_inputs[gate_id] = gate_inputs
             
@@ -109,8 +110,9 @@ class Bob: # server
                 dependents[wire_id].append(gate_id)
 
             common_elements = list(set(input_wires).intersection(gate_inputs))
+            print(f'common elements: {common_elements}')
 
-            if gate_type == "NOT":
+            if gate_type == "NOT" or gate_type == "INV":
                 missing_inputs = 1 - len(common_elements)
             else: 
                 missing_inputs = 2 - len(common_elements)
@@ -164,13 +166,14 @@ class Bob: # server
         :type gate_inputs: dict
         :param possible_outputs: list (len 2 or 4) possible encrypted outputs
         """
+        print("gate", gate_id)
         print(f'inputs: {gate_inputs}')
         print(f'possible outputs: {possible_outputs}')
         # print(f'gate_inptus: {gate_inputs}')
         # print(f'gate_type: {gate_type}')
 
 
-        if len(list(gate_inputs.values())) == 1: # NOT gate
+        if len(list(gate_inputs.values())) == 1: # NOT or INV gate
             wire_input = list(gate_inputs.values())[0]
             index = self.get_index_pbit_not(pbit=wire_input.pbit)
             ciphertext = possible_outputs[index]
@@ -186,9 +189,11 @@ class Bob: # server
 
             index = self.get_index_pbits(wire0.pbit, wire1.pbit)
             ciphertext = possible_outputs[index]
-            print("gate", gate_id, "gate_inputs ids:", list(gate_inputs.keys()))
+            
 
             out = self.garble_decrypt(wire0, wire1, ciphertext, gate_id)
+
+        print(f'out decrypted: {out}')
         return out
 
     def get_index_pbits(self, pbit0:int, pbit1:int):
@@ -219,25 +224,29 @@ class Bob: # server
         digest = self.H(k0 + k1 + gate_id.to_bytes(4, 'big'))
         return digest[:length]
 
-    def garble_decrypt(self, wire0:WireLabel, wire1:WireLabel, ciphertext, gate_id:int):
+    def garble_decrypt(self, wire0: WireLabel, wire1: WireLabel, ciphertext, gate_id: int):
         pad = self.derive_pad(wire0.key, wire1.key, gate_id, len(ciphertext))
         plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
 
-        key = plaintext[:-1]
+        # Unpack: id (4 bytes) + key (16 bytes) + pbit (1 byte)
+        id_val = int.from_bytes(plaintext[:4], 'big')
+        key = plaintext[4:-1]
         pbit = plaintext[-1]
-        return WireLabel(key, pbit)
+        return WireLabel(id=id_val, key=key, pbit=pbit)
     
     def derive_pad_not(self, k0, gate_id, length):
         digest = self.H(k0 + gate_id.to_bytes(4, 'big'))
         return digest[:length]
 
-    def garble_decrypt_not(self, wire:WireLabel,  ciphertext, gate_id:int):
+    def garble_decrypt_not(self, wire: WireLabel, ciphertext, gate_id: int):
         pad = self.derive_pad_not(wire.key, gate_id, len(ciphertext))
         plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
 
-        key = plaintext[:-1]
+        # Unpack: id (4 bytes) + key (16 bytes) + pbit (1 byte)
+        id_val = int.from_bytes(plaintext[:4], 'big')
+        key = plaintext[4:-1]
         pbit = plaintext[-1]
-        return WireLabel(key, pbit)
+        return WireLabel(id=id_val, key=key, pbit=pbit)
 
     def get_garbled_circuit(self):
         self.garbled_circuit = recv_circuit(self.connection)
@@ -245,34 +254,38 @@ class Bob: # server
 
     def get_alice_inputs(self):
         """
-       get alice's wire inputs. must be recieved with smallest wire to largest wire
-        TODO: change communication protocol to send a wirelabel where the wire id is also attached
+        get alice's wire inputs. must be received with smallest wire to largest wire
 
         :param self: Description
         """
         alice_input_ids = self.config_json['circuits'][0]['alice']
+        alice_input_ids.sort()  # Ensure same order as sender
         print(f'alice input ids: {alice_input_ids}')
+        
         sock = self.connection
-        alice_inputs=[]
-        for i in alice_input_ids:
-            a0_int = recv_int(sock)
-            # a1_int = recv_int(sock)
-
-            a0 = unpack_wirelabel(int_to_bytes(a0_int))
-            # a1 = unpack_wirelabel(int_to_bytes(a1_int))
-            alice_inputs.append(a0)
+        alice_inputs = []
+        
+        for wire_id in alice_input_ids:
+            # Receive bytes directly (not int)
+            wire_label_bytes = recv_bytes(sock)
+            wire_label = unpack_wirelabel(wire_label_bytes)
+            alice_inputs.append(wire_label)
 
         print(f'alice input ids: {alice_input_ids}')
-        for i, id in enumerate(alice_input_ids):
-            input = alice_inputs[i]
-            print(f'id: {id}')
-            print(f'wirelabel: {input}')
+        for i, wire_id in enumerate(alice_input_ids):
+            input_label = alice_inputs[i]
+            print(f'wire id: {wire_id}')
+            print(f'wirelabel: {input_label}')
             
+            # Store the wirelabel
+            self.circuit_inputs[wire_id] = input_label
 
-            self.circuit_inputs[id] = alice_inputs[i]
-
-            if self.circuit_inputs[id] != input.id:
-                raise ValueError(f'mapping incorrect wire input to wire')
+            # Validate that the wirelabel's id matches the expected wire id
+            if input_label.id != wire_id:
+                raise ValueError(
+                    f'Wire ID mismatch: expected {wire_id}, '
+                    f'but wirelabel has id {input_label.id}'
+                )
 
         return alice_inputs
 

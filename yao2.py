@@ -2,6 +2,7 @@ import pickle, random, os
 from cryptography.fernet import Fernet
 import hashlib
 from dataclasses import dataclass
+# from coms import pack_wirelabel
 
 # TODO: probably cleaner
 @dataclass
@@ -19,6 +20,9 @@ class Wire:
     def __str__(self):
         return f'Wire {self.id} | l0: {self.l0.key}, {self.l0.pbit} | l1: {self.l1.key}, {self.l1.pbit}'
 
+def pack_wirelabel(label: WireLabel) -> bytes:
+    # Pack: id (4 bytes) + key (16 bytes) + pbit (1 byte) = 21 bytes
+    return label.id.to_bytes(4, 'big') + label.key + bytes([label.pbit])
 
 def H(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
@@ -27,36 +31,37 @@ def derive_pad(k0, k1, gate_id, length):
     digest = H(k0 + k1 + gate_id.to_bytes(4, 'big'))
     return digest[:length]
 
-def garble_encrypt(wire0:WireLabel, wire1:WireLabel, output_label: WireLabel, gate_id:int):
-    plaintext = output_label.key + bytes([output_label.pbit])
+def garble_encrypt(wire0: WireLabel, wire1: WireLabel, output_label: WireLabel, gate_id: int):
+    # Pack the full WireLabel: id (4 bytes) + key (16 bytes) + pbit (1 byte) = 21 bytes
+    plaintext = pack_wirelabel(output_label)
     pad = derive_pad(wire0.key, wire1.key, gate_id, len(plaintext))
     return bytes(a ^ b for a, b in zip(plaintext, pad))
 
-def garble_decrypt(wire0, wire1, ciphertext, gate_id):
-    pad = derive_pad(wire0[0], wire1[0], gate_id, len(ciphertext))
-    plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
+# def garble_decrypt(wire0, wire1, ciphertext, gate_id):
+#     pad = derive_pad(wire0[0], wire1[0], gate_id, len(ciphertext))
+#     plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
 
-    key = plaintext[:-1]
-    pbit = plaintext[-1]
-    return (key, pbit)
+#     key = plaintext[:-1]
+#     pbit = plaintext[-1]
+#     return (key, pbit)
 
 def derive_pad_not(k0, gate_id, length):
     digest = H(k0 + gate_id.to_bytes(4, 'big'))
     return digest[:length]
 
-def garble_encrypt_not(wire, output_label:WireLabel, gate_id:int):
-    # gate_id = output_label[0]
-    plaintext = output_label.key + bytes([output_label.pbit])
+def garble_encrypt_not(wire, output_label: WireLabel, gate_id: int):
+    # Pack the full WireLabel: id (4 bytes) + key (16 bytes) + pbit (1 byte) = 21 bytes
+    plaintext = pack_wirelabel(output_label)
     pad = derive_pad_not(wire.key, gate_id, len(plaintext))
     return bytes(a ^ b for a, b in zip(plaintext, pad))
 
-def garble_decrypt_not(wire,  ciphertext, gate_id):
-    pad = derive_pad_not(wire[0], gate_id, len(ciphertext))
-    plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
+# def garble_decrypt_not(wire,  ciphertext, gate_id):
+#     pad = derive_pad_not(wire[0], gate_id, len(ciphertext))
+#     plaintext = bytes(a ^ b for a, b in zip(ciphertext, pad))
 
-    key = plaintext[:-1]
-    pbit = plaintext[-1]
-    return (key, pbit)
+#     key = plaintext[:-1]
+#     pbit = plaintext[-1]
+#     return (key, pbit)
 
 
 class GarbledCircuit: 

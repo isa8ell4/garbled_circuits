@@ -106,16 +106,9 @@ class Alice:
     def send_alice_inputs(self):
         """
         send alice's inputs. must be sent in order of smallest wire id to largest wire id
-        TODO: change communication protocol to send a wirelabel where the wire id is also attached
         
         :param self: Description
         """
-
-        # turn input into bits
-        # wealth_bits = int_to_bits(self.wealth)
-
-        # print(f'wealth type: {wealth_bits} | {type(wealth_bits)}')
-
         # get wire inputs options
         alice_input_ids = self.config_json['circuits'][0]['alice']
         alice_input_ids.sort()
@@ -123,7 +116,6 @@ class Alice:
         wire_inputs_binary = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth)
         wire_inputs_binary_sorted = dict(sorted(wire_inputs_binary.items()))
         print(f'wire_inputs_binary_sorted: {wire_inputs_binary_sorted}')
-        # wire_inputs_labels = {}
 
         for wire_id, bit in wire_inputs_binary_sorted.items():
             wire = self.garbled_circuit.wires[wire_id]
@@ -139,7 +131,6 @@ class Alice:
             
             send_bytes(self.socket, wire_label_bytes)
 
-        # return inputs_sent
 
         
     def send_bob_inputs(self):

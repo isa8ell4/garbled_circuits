@@ -26,17 +26,6 @@ def recv_circuit(sock: socket.socket):
     payload = recv_exact(sock, length)
     return pickle.loads(payload)    
 
-# def pack_wirelabel(label:WireLabel) -> bytes:
-#     # return (label.key << 1) | int_to_bytes(label.pbit)
-#     return label.key + bytes([label.pbit])
-
-# def unpack_wirelabel(data: bytes) -> WireLabel:
-#     # pbit = b&1
-#     # key = b<<1
-#     # return WireLabel(key, pbit)
-#     key = data[:-1]
-#     pbit = data[-1]
-#     return WireLabel(key, pbit)
 
 def pack_wirelabel(label: WireLabel) -> bytes:
     # Pack: id (4 bytes) + key (16 bytes) + pbit (1 byte) = 21 bytes
