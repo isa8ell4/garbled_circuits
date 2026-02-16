@@ -18,8 +18,8 @@ class Gate:
     def create_gate(self):
         info_list = self.line.split()
         num_inputs, num_outputs = map(int, info_list[0:2])
-        inputs = info_list[2:2+num_inputs]
-        id = info_list[2+num_inputs]
+        inputs = list(map(int, info_list[2:2+num_inputs]))
+        id = int(info_list[2+num_inputs])
         gate_type = info_list[-1]
         return id, gate_type, inputs
     def __str__(self):
@@ -63,8 +63,8 @@ for line in lines_list[3:]:
         largest_gate_id = int(gate.id)
 
 
-json_circuit['out'] = largest_gate_id
-json_circuit['gates'] = [json_gates]
+json_circuit['out'] = [largest_gate_id]
+json_circuit['gates'] = json_gates
 json_dict["circuits"] = [json_circuit]
 
 json_string = json.dumps(json_dict)

@@ -20,6 +20,8 @@ if __name__ == "__main__":
             config_path = args[i + 1]
         elif arg == "-i":
             wealth = int(args[i+1])
+            if wealth.bit_length() > 32:
+                raise ValueError(f'bid over the 32 bit length and is {wealth.bit_length()}')
 
     # open and read json
     config = None

@@ -149,7 +149,10 @@ class GarbledGate:
         self.id = gate_json["id"]
         self.input = gate_json["in"]  # list of inputs'ID
         self.output = gate_json["id"]  # ID of output
-        self.gate_type = gate_json["type"]  # Gate type: OR, AND, ...
+        if gate_json["type"] == "INV":
+            self.gate_type = "NOT"
+        else: 
+            self.gate_type = gate_json["type"]  # Gate type: OR, AND, ...
         self.table = {} # plain boolean table
         self.garbled_table = {} 
         self.wires = wires # dict of wires with their labels
