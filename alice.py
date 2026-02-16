@@ -3,6 +3,9 @@ from cryptography.hazmat.primitives import serialization
 from yao2 import GarbledCircuit, Wire, WireLabel
 from cryptography.hazmat.primitives.asymmetric import rsa
 from coms import *
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.backends import default_backend
 
 class Alice: 
     def __init__(self, config_json, wealth, port=8089, host='localhost', msgs = None, circuit=None):
@@ -151,30 +154,16 @@ class Alice:
             print(f'options for wire {id}: \n0: {wire.l0}\n1: {wire.l1}')
             self.oblivious_transfer_alice(m0=wire.l0, m1=wire.l1)
 
-        
-    
-    def oblivious_transfer_alice(self, m0:WireLabel, m1:WireLabel):
+    def oblivious_transfer_alice(self, m0: WireLabel, m1: WireLabel):
+        # Convert wirelabel to bytes
+        m0_bytes = pack_wirelabel(m0)
+        m1_bytes = pack_wirelabel(m1)
 
-        # convert wirelabel datatype to an int
-        m0_packed_bytes = pack_wirelabel(m0)
-        m1_packed_bytes = pack_wirelabel(m1)
-
-        m0_packed_int = bytes_to_int(m0_packed_bytes)
-        m1_packed_int = bytes_to_int(m1_packed_bytes)
-
-        #gen RSA key pair and send pub portion to Bob
-
-        # private key
+        # Generate RSA key pair
         d = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
         )
-        # priv_bytes = d.private_bytes(
-        #     encoding=serialization.Encoding.PEM,
-        #     format=serialization.PrivateFormat.TraditionalOpenSSL,
-        #     encryption_algorithm=serialization.NoEncryption()
-        # )
-        # priv_int = bytes_to_int(priv_bytes)
         private_numbers = d.private_numbers()
         d_exp = private_numbers.d
 
@@ -182,36 +171,111 @@ class Alice:
         public_numbers = public_key.public_numbers()
         e, n = public_numbers.e, public_numbers.n
 
-
-        # send public key info (e, n) and random numbers x0, x1 (below n)
+        # Send public key and random numbers
         send_int(self.socket, e)
         send_int(self.socket, n)
-        # self.socket.sendall(int_to_bytes(public_numbers.e))
-        # self.socket.sendall(int_to_bytes(public_numbers.n))
 
         x0 = secrets.randbelow(n)
         x1 = secrets.randbelow(n)
         send_int(self.socket, x0)
         send_int(self.socket, x1)
-        # print(f'e: {e}\nn: {n}\nx0: {x0}\nx1: {x1}')
-        # self.socket.sendall(int_to_bytes(x0))
-        # self.socket.sendall(int_to_bytes(x1))
 
-        # wait for v
+        # Wait for v
         v = recv_int(self.socket)
-        # print(f'received v')
 
-        # calc k0, k1, m0_tick, m1_tick
-
-        # k0 = pow(v-x0, d_exp, n) # (v-x0)**d % n
+        # Compute k0 and k1
         k0 = pow((v - x0) % n, d_exp, n)
-        m0_tick = (m0_packed_int+k0) % n
-
-        # k1 = pow(v-x1, d_exp, n) # (v-x1)**d % n
         k1 = pow((v - x1) % n, d_exp, n)
-        m1_tick = (m1_packed_int+k1) % n
 
-        send_int(self.socket, m0_tick)
-        send_int(self.socket, m1_tick)
+        # Derive encryption keys - CREATE SEPARATE KDF INSTANCES
+        k0_bytes = int_to_bytes(k0)
+        k1_bytes = int_to_bytes(k1)
+        
+        kdf0 = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b'ot-encryption',
+            backend=default_backend()
+        )
+        encryption_key0 = kdf0.derive(k0_bytes)
+        
+        kdf1 = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b'ot-encryption',
+            backend=default_backend()
+        )
+        encryption_key1 = kdf1.derive(k1_bytes)
+
+        # Encrypt m0 and m1 using XOR
+        m0_encrypted = bytes(a ^ b for a, b in zip(m0_bytes, encryption_key0[:len(m0_bytes)]))
+        m1_encrypted = bytes(a ^ b for a, b in zip(m1_bytes, encryption_key1[:len(m1_bytes)]))
+
+        # Send encrypted messages
+        send_bytes(self.socket, m0_encrypted)
+        send_bytes(self.socket, m1_encrypted)
+    
+    # def oblivious_transfer_alice(self, m0:WireLabel, m1:WireLabel):
+
+    #     # convert wirelabel datatype to an int
+    #     m0_packed_bytes = pack_wirelabel(m0)
+    #     m1_packed_bytes = pack_wirelabel(m1)
+
+    #     m0_packed_int = bytes_to_int(m0_packed_bytes)
+    #     m1_packed_int = bytes_to_int(m1_packed_bytes)
+
+    #     #gen RSA key pair and send pub portion to Bob
+
+    #     # private key
+    #     d = rsa.generate_private_key(
+    #         public_exponent=65537,
+    #         key_size=2048,
+    #     )
+    #     # priv_bytes = d.private_bytes(
+    #     #     encoding=serialization.Encoding.PEM,
+    #     #     format=serialization.PrivateFormat.TraditionalOpenSSL,
+    #     #     encryption_algorithm=serialization.NoEncryption()
+    #     # )
+    #     # priv_int = bytes_to_int(priv_bytes)
+    #     private_numbers = d.private_numbers()
+    #     d_exp = private_numbers.d
+
+    #     public_key = d.public_key()
+    #     public_numbers = public_key.public_numbers()
+    #     e, n = public_numbers.e, public_numbers.n
+
+
+    #     # send public key info (e, n) and random numbers x0, x1 (below n)
+    #     send_int(self.socket, e)
+    #     send_int(self.socket, n)
+    #     # self.socket.sendall(int_to_bytes(public_numbers.e))
+    #     # self.socket.sendall(int_to_bytes(public_numbers.n))
+
+    #     x0 = secrets.randbelow(n)
+    #     x1 = secrets.randbelow(n)
+    #     send_int(self.socket, x0)
+    #     send_int(self.socket, x1)
+    #     # print(f'e: {e}\nn: {n}\nx0: {x0}\nx1: {x1}')
+    #     # self.socket.sendall(int_to_bytes(x0))
+    #     # self.socket.sendall(int_to_bytes(x1))
+
+    #     # wait for v
+    #     v = recv_int(self.socket)
+    #     # print(f'received v')
+
+    #     # calc k0, k1, m0_tick, m1_tick
+
+    #     # k0 = pow(v-x0, d_exp, n) # (v-x0)**d % n
+    #     k0 = pow((v - x0) % n, d_exp, n)
+    #     m0_tick = (m0_packed_int+k0) % n
+
+    #     # k1 = pow(v-x1, d_exp, n) # (v-x1)**d % n
+    #     k1 = pow((v - x1) % n, d_exp, n)
+    #     m1_tick = (m1_packed_int+k1) % n
+
+    #     send_int(self.socket, m0_tick)
+    #     send_int(self.socket, m1_tick)
 
 

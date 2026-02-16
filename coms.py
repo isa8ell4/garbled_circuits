@@ -26,18 +26,27 @@ def recv_circuit(sock: socket.socket):
     payload = recv_exact(sock, length)
     return pickle.loads(payload)    
 
-def pack_wirelabel(label:WireLabel) -> bytes:
-    # return (label.key << 1) | int_to_bytes(label.pbit)
-    return label.key + bytes([label.pbit])
+# def pack_wirelabel(label:WireLabel) -> bytes:
+#     # return (label.key << 1) | int_to_bytes(label.pbit)
+#     return label.key + bytes([label.pbit])
+
+# def unpack_wirelabel(data: bytes) -> WireLabel:
+#     # pbit = b&1
+#     # key = b<<1
+#     # return WireLabel(key, pbit)
+#     key = data[:-1]
+#     pbit = data[-1]
+#     return WireLabel(key, pbit)
+
+def pack_wirelabel(label: WireLabel) -> bytes:
+    # Pack: id (4 bytes) + key (16 bytes) + pbit (1 byte) = 21 bytes
+    return label.id.to_bytes(4, 'big') + label.key + bytes([label.pbit])
 
 def unpack_wirelabel(data: bytes) -> WireLabel:
-    # pbit = b&1
-    # key = b<<1
-    # return WireLabel(key, pbit)
-    key = data[:-1]
+    id_val = int.from_bytes(data[:4], 'big')
+    key = data[4:-1]
     pbit = data[-1]
-    return WireLabel(key, pbit)
-
+    return WireLabel(id=id_val, key=key, pbit=pbit)
 
 def send_bytes(sock, b: bytes):
     sock.sendall(struct.pack("!I", len(b)) + b)
@@ -71,9 +80,11 @@ def int_to_bytes(num):
 def bytes_to_int(b):
     return int.from_bytes(b)
 
-def int_to_bits(num):
+def int_to_bits(num, msb_first=True, bit_size='08b'):
     """returns list of bits in big endian"""
-    bits = [int(b) for b in format(num, '08b')]
+    bits = [int(b) for b in format(num, bit_size)]
+    if msb_first==False:
+        bits.reverse()
     return bits
 
 def bits_to_int(bits):
@@ -82,14 +93,16 @@ def bits_to_int(bits):
         x = (x << 1) | b
     return x
 
-def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
+def wires_to_inputs(wire_ids: list[int], bid: int, msb_first=True) -> dict:
     """
-    map inputs to intended wires. small wire ids get MSB, greater wire ids get LSB
+    map inputs to intended wires. small wire ids get MSB, greater wire ids get LSB (unless msb_first=false, little endian)
     
     :param wire_ids: Description
     :type wire_ids: list[int]
     :param bid: Description
     :type bid: int
+    :param msb_first: big endian
+    :type msb_first: bool
 
     return: dict (wire id: binary input)
     """
@@ -98,22 +111,30 @@ def wires_to_inputs(wire_ids: list[int], bid: int) -> dict:
     wire_ids.sort(reverse=True)
 
 
-    bid_bits = int_to_bits(bid)
+
+    bid_bits = int_to_bits(bid, msb_first=msb_first, bit_size='032b')
     print(f'converted {bid} (int) to {bid_bits} (binary)')
 
-    for i, bit in enumerate(bid_bits):
-        if bit == 1:
-            break
+    # for i, bit in enumerate(bid_bits):
+    #     if bit == 1:
+    #         break
     
-    valuable_bits = bid_bits[i:]
+    # valuable_bits = bid_bits[i:]
 
-    if len(valuable_bits) > len(wire_ids):
-        raise ValueError(
-            f"Too many valuable bits ({len(valuable_bits)}) "
-            f"for available wire IDs ({len(wire_ids)})"
-        )
+    # if len(valuable_bits) > len(wire_ids):
+    #     raise ValueError(
+    #         f"Too many valuable bits ({len(valuable_bits)}) "
+    #         f"for available wire IDs ({len(wire_ids)})"
+    #     )
     
-    bid_bits.reverse()
+    # bid_bits.reverse()
+
+    if len(bid_bits) != len(wire_ids):
+        raise ValueError(f'length of bits does not match number of wires')
+    
+
+    print(f'wire_ids: {wire_ids}')
+
     for index, wire_id in enumerate(wire_ids):
         wires_to_inputs[wire_id] = bid_bits[index]
 

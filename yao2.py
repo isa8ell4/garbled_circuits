@@ -6,6 +6,7 @@ from dataclasses import dataclass
 # TODO: probably cleaner
 @dataclass
 class WireLabel:
+    id: int
     key: bytes      # 16 bytes
     pbit: int       # 0 or 1
 
@@ -77,14 +78,14 @@ class GarbledCircuit:
         wires = {}
         for wire_id in wire_ids:
             p1 = random.choice([0,1])
-            p2 = not p1
+            p2 = int(not p1)
 
             if p1 not in [0,1] or p2 not in [0,1]:
                 raise ValueError(f'p1= {p1}, p2= {p2}')
             
             wires[wire_id] = Wire(id=wire_id, 
-                                  l0=WireLabel(key=os.urandom(16), pbit=p1), 
-                                  l1=WireLabel(key=os.urandom(16), pbit=p2))
+                                  l0=WireLabel(id=wire_id, key=os.urandom(16), pbit=p1), 
+                                  l1=WireLabel(id=wire_id, key=os.urandom(16), pbit=p2))
 
         return wires 
 

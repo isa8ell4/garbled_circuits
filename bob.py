@@ -3,7 +3,9 @@ from coms import *
 from tester import ot_key
 import hashlib
 from yao2 import Wire, WireLabel
-
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.backends import default_backend
 # from yao2 import GarbledGate
 
 class Bob: # server
@@ -38,8 +40,8 @@ class Bob: # server
 
         # get alice inputs + circuit
         print(f'\nalice sents her inputs\n')
-        [a0, a1] = self.get_alice_inputs()
-        print(f'alice inputs are \na0: {a0}\na1: {a1}')
+        alice_inputs = self.get_alice_inputs()
+        print(f'alice inputs are: {alice_inputs}')
 
         print(f'circuit inputs: {self.circuit_inputs}')
 
@@ -249,17 +251,28 @@ class Bob: # server
         :param self: Description
         """
         alice_input_ids = self.config_json['circuits'][0]['alice']
+        print(f'alice input ids: {alice_input_ids}')
         sock = self.connection
-        a0_int = recv_int(sock)
-        a1_int = recv_int(sock)
+        alice_inputs=[]
+        for i in alice_input_ids:
+            a0_int = recv_int(sock)
+            # a1_int = recv_int(sock)
 
-        a0 = unpack_wirelabel(int_to_bytes(a0_int))
-        a1 = unpack_wirelabel(int_to_bytes(a1_int))
-        alice_inputs = [a0,a1]
+            a0 = unpack_wirelabel(int_to_bytes(a0_int))
+            # a1 = unpack_wirelabel(int_to_bytes(a1_int))
+            alice_inputs.append(a0)
 
         print(f'alice input ids: {alice_input_ids}')
         for i, id in enumerate(alice_input_ids):
+            input = alice_inputs[i]
+            print(f'id: {id}')
+            print(f'wirelabel: {input}')
+            
+
             self.circuit_inputs[id] = alice_inputs[i]
+
+            if self.circuit_inputs[id] != input.id:
+                raise ValueError(f'mapping incorrect wire input to wire')
 
         return alice_inputs
 
@@ -294,62 +307,113 @@ class Bob: # server
             self.circuit_inputs[wire_id] = self.oblivious_transfer_bob(bit)
 
 
-    def oblivious_transfer_bob(self, input_bit:int):
-        """
-        Docstring for oblivious_transfer_bob
-        
-        :param self: Description
-        :param input_wire_id: id of wire
-        :type input_wire_id: int
-        :param input_bit: decision bit, 0 or 1
-        :type input_bit: int
-        """
+    def oblivious_transfer_bob(self, input_bit: int):
         sock = self.connection
 
-
-        # get public key and random numbers from alice
+        # Receive public key and random numbers from alice
         e = recv_int(sock)
         n = recv_int(sock)
         x0 = recv_int(sock)
         x1 = recv_int(sock)
-        # print(f'received e,n,x0,x1')
-        # e, n = self.recv_pub_key(connection)
-        # x0, x1 = self.recv_random_numbers(connection)
 
-        # print(f'e: {e}\nn: {n}\nx0: {x0}\nx1: {x1}')
+        # Generate k
+        k = secrets.randbelow(n - 1) + 1
 
-
-        # generate k 
-        # k = secrets.randbelow(n)
-        k = secrets.randbelow(n - 1) + 1   # 1..n-1 | 0 is not allowed
-
-        # print(f'k: {k}')
-        # print(f'input_bit: {input_bit == 0}')
-        # compute v
-        if input_bit == 0: 
+        # Compute v
+        if input_bit == 0:
             v = (x0 + pow(k, e, n)) % n
-        elif input_bit == 1: 
+        elif input_bit == 1:
             v = (x1 + pow(k, e, n)) % n
-        else: 
-            raise ValueError(f'decision bit is not 0 or 1')
-        # print(f'v: {v}')
-        # send v #TODO getting stuck here
+        else:
+            raise ValueError('decision bit is not 0 or 1')
+
         send_int(sock, v)
 
-        # receive m0_tick and m1_tick
-        m0_tick = recv_int(sock)
-        m1_tick = recv_int(sock)
-        # print(f'received m0_tick and m1_tick')
+        # Receive encrypted labels
+        m0_tick_bytes = recv_bytes(sock)
+        m1_tick_bytes = recv_bytes(sock)
 
-        if input_bit == 0: 
-            m = (m0_tick -k) % n
-        elif input_bit ==1:
-            m = (m1_tick -k) % n
+        # Derive encryption key from k
+        k_bytes = int_to_bytes(k)
+        kdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b'ot-encryption',
+            backend=default_backend()
+        )
+        encryption_key = kdf.derive(k_bytes)
 
-        m_unpacked = unpack_wirelabel(int_to_bytes(m))
+        # Decrypt the chosen message
+        if input_bit == 0:
+            m_encrypted = m0_tick_bytes
+        else:
+            m_encrypted = m1_tick_bytes
 
+        # XOR decryption
+        m_bytes = bytes(a ^ b for a, b in zip(m_encrypted, encryption_key[:len(m_encrypted)]))
+        
+        m_unpacked = unpack_wirelabel(m_bytes)
         print(f'received: {m_unpacked}')
         
         return m_unpacked
+
+    # def oblivious_transfer_bob(self, input_bit:int):
+    #     """
+    #     Docstring for oblivious_transfer_bob
+        
+    #     :param self: Description
+    #     :param input_wire_id: id of wire
+    #     :type input_wire_id: int
+    #     :param input_bit: decision bit, 0 or 1
+    #     :type input_bit: int
+    #     """
+    #     sock = self.connection
+
+
+    #     # get public key and random numbers from alice
+    #     e = recv_int(sock)
+    #     n = recv_int(sock)
+    #     x0 = recv_int(sock)
+    #     x1 = recv_int(sock)
+    #     # print(f'received e,n,x0,x1')
+    #     # e, n = self.recv_pub_key(connection)
+    #     # x0, x1 = self.recv_random_numbers(connection)
+
+    #     # print(f'e: {e}\nn: {n}\nx0: {x0}\nx1: {x1}')
+
+
+    #     # generate k 
+    #     # k = secrets.randbelow(n)
+    #     k = secrets.randbelow(n - 1) + 1   # 1..n-1 | 0 is not allowed
+
+    #     # print(f'k: {k}')
+    #     # print(f'input_bit: {input_bit == 0}')
+    #     # compute v
+    #     if input_bit == 0: 
+    #         v = (x0 + pow(k, e, n)) % n
+    #     elif input_bit == 1: 
+    #         v = (x1 + pow(k, e, n)) % n
+    #     else: 
+    #         raise ValueError(f'decision bit is not 0 or 1')
+    #     # print(f'v: {v}')
+    #     # send v #TODO getting stuck here
+    #     send_int(sock, v)
+
+    #     # receive m0_tick and m1_tick
+    #     m0_tick = recv_int(sock)
+    #     m1_tick = recv_int(sock)
+    #     # print(f'received m0_tick and m1_tick')
+
+    #     if input_bit == 0: 
+    #         m = (m0_tick -k) % n
+    #     elif input_bit ==1:
+    #         m = (m1_tick -k) % n
+
+    #     m_unpacked = unpack_wirelabel(int_to_bytes(m))
+
+    #     print(f'received: {m_unpacked}')
+        
+    #     return m_unpacked
         
                 
