@@ -306,7 +306,7 @@ class Bob: # server
         # wealth_bits = int_to_bits(self.wealth)
 
         # map wire to binary input
-        wire_inputs = wires_to_inputs(wire_ids=input_wire_ids, bid=self.wealth)
+        wire_inputs = wires_to_inputs(wire_ids=input_wire_ids, bid=self.wealth, msb_first=False)
         wire_inputs_sorted = dict(sorted(wire_inputs.items()))
 
         # print(f'bob wealth bits: {wealth_bits}')

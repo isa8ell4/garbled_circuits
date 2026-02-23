@@ -270,10 +270,16 @@ class GarbledGate:
         self.garbled_table = table4
 
 
+# For debugging
 
+class Circuit: 
+    def __init__(self):
+        pass
 
 
             
-            
+class Gate: 
+    def __init__(self):
+        pass            
 
     

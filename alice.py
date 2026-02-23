@@ -113,7 +113,7 @@ class Alice:
         alice_input_ids = self.config_json['circuits'][0]['alice']
         alice_input_ids.sort()
 
-        wire_inputs_binary = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth)
+        wire_inputs_binary = wires_to_inputs(wire_ids=alice_input_ids, bid=self.wealth, msb_first=False)
         wire_inputs_binary_sorted = dict(sorted(wire_inputs_binary.items()))
         print(f'wire_inputs_binary_sorted: {wire_inputs_binary_sorted}')
 
